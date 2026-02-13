@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM python:3.11-slim-bookworm
 
 WORKDIR /app
 
@@ -6,7 +6,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     ffmpeg \
-    libgl1 \
+    libgl1-mesa-glx \
     libglib2.0-0 \
     curl \
     && rm -rf /var/lib/apt/lists/*
