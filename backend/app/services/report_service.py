@@ -1,7 +1,7 @@
+import logging
 from datetime import date, timedelta
 from typing import Optional
 
-import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_
 
@@ -9,6 +9,8 @@ from app.models.analysis import AnalysisResult, GrowthMetric
 from app.models.media import MediaFile, MediaChild
 from app.models.report import MonthlyReport
 from app.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 async def calculate_radar_data(
@@ -145,7 +147,9 @@ async def detect_spark_cards(db: AsyncSession, child_id: str) -> list[dict]:
 async def generate_monthly_summary(
     radar_data: dict, spark_cards: list[dict]
 ) -> str:
-    """调用通义千问大模型生成月度成长总结"""
+    """使用统一 LLM client 生成月度成长总结"""
+    from app.ai.remote.llm_client import get_llm_client
+
     prompt = f"""你是一位专业的儿童发展顾问。请根据以下数据，为家长撰写一份温暖、鼓励性的月度成长总结（200-300字）。
 
 兴趣偏好分布：
@@ -172,24 +176,92 @@ async def generate_monthly_summary(
 请用第二人称（"您的孩子"）撰写，语气温暖积极，突出进步和亮点。"""
 
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                "https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation",
-                headers={
-                    "Authorization": f"Bearer {settings.DASHSCOPE_API_KEY}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": "qwen-turbo",
-                    "input": {
-                        "messages": [{"role": "user", "content": prompt}]
-                    },
-                },
-            )
-            if response.status_code == 200:
-                data = response.json()
-                return data.get("output", {}).get("text", "本月孩子表现良好，继续加油！")
-    except Exception:
-        pass
+        client = get_llm_client()
+        return await client.chat(prompt=prompt)
+    except Exception as error:
+        logger.warning("LLM 生成月度总结失败: %s，使用默认文案", error)
 
     return "本月孩子表现良好，各方面都在稳步成长。继续保持对孩子的关注和陪伴，让成长的每一步都被温柔记录。"
+
+
+def _flatten_radar_data(radar_data: dict) -> list[dict]:
+    """将嵌套的 radar_data dict 转换为前端期望的 array 格式"""
+    dimension_labels = {
+        "interest": {
+            "sport": "运动", "music": "音乐", "art": "艺术",
+            "learning": "学习", "social": "社交",
+        },
+        "talent": {
+            "logic": "逻辑推理", "spatial": "空间想象",
+            "language": "语言表达", "motor": "运动协调",
+        },
+        "psychology": {
+            "empathy": "同理心", "resilience": "抗挫力",
+            "confidence": "自信心",
+        },
+    }
+    flat_list = []
+    for category, dimensions in dimension_labels.items():
+        category_data = radar_data.get(category, {})
+        for key, label in dimensions.items():
+            score = category_data.get(key, 0.0)
+            flat_list.append({
+                "dimension": label,
+                "score": round(score * 100, 1),
+            })
+    return flat_list
+
+
+async def generate_report_sync(child_id: str, db: AsyncSession) -> None:
+    """在无 Celery 环境下直接同步生成月度报告"""
+    from app.models.child import Child
+    from app.ai.remote.report_generator import generate_growth_narrative
+
+    report_month = date.today().replace(day=1)
+
+    child_result = await db.execute(
+        select(Child).where(Child.id == child_id)
+    )
+    child = child_result.scalar_one_or_none()
+    if not child:
+        raise ValueError(f"孩子不存在: {child_id}")
+
+    existing = await db.execute(
+        select(MonthlyReport).where(
+            MonthlyReport.child_id == child_id,
+            MonthlyReport.report_month == report_month,
+        )
+    )
+    if existing.scalar_one_or_none():
+        logger.info("本月报告已存在: child_id=%s", child_id)
+        return
+
+    radar_data = await calculate_radar_data(db, child_id, report_month)
+    spark_cards = await detect_spark_cards(db, child_id)
+
+    age_months = (
+        (report_month.year - child.birth_date.year) * 12
+        + report_month.month - child.birth_date.month
+    )
+
+    narrative = await generate_growth_narrative(
+        child_name=child.name,
+        age_months=age_months,
+        radar_data=radar_data,
+        spark_cards=spark_cards,
+        behavior_summary=[],
+        emotion_summary={},
+    )
+
+    summary = await generate_monthly_summary(radar_data, spark_cards)
+
+    report = MonthlyReport(
+        child_id=child_id,
+        report_month=report_month,
+        summary_text=summary,
+        radar_data=radar_data,
+        spark_cards=spark_cards,
+        narrative=narrative,
+    )
+    db.add(report)
+    await db.commit()
