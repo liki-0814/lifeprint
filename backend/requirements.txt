@@ -33,13 +33,8 @@ openai==1.55.0
 anthropic==0.40.0
 dashscope==1.20.14
 
-# ========== AI - Local Models ==========
-# InsightFace (人脸识别) - 可选，首次使用自动下载模型
-insightface==0.7.3
-onnxruntime==1.20.0
-# Whisper (语音转写) - 可选，首次使用自动下载模型
-openai-whisper==20240930
-# 场景检测与视频处理
+# ========== AI - Local Models (see requirements-ai.txt) ==========
+# Heavy AI deps moved to requirements-ai.txt for optional install
 scenedetect[opencv]==0.6.4
 ffmpeg-python==0.2.0
 

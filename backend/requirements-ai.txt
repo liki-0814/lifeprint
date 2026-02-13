@@ -1,0 +1,6 @@
+# ========== AI - Local Models (可选) ==========
+# InsightFace (人脸识别) - 首次使用自动下载模型
+insightface==0.7.3
+onnxruntime==1.20.0
+# Whisper (语音转写) - 首次使用自动下载模型
+openai-whisper==20240930
