@@ -16,6 +16,39 @@ from app.utils.deps import get_current_user
 router = APIRouter()
 
 
+@router.get("/mine", response_model=FamilyResponse)
+async def get_my_family(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """获取当前用户的家庭，如果没有则自动创建一个"""
+    member_result = await db.execute(
+        select(FamilyMember).where(FamilyMember.user_id == current_user.id)
+    )
+    member = member_result.scalar_one_or_none()
+
+    if member:
+        family_result = await db.execute(
+            select(Family).where(Family.id == member.family_id)
+        )
+        family = family_result.scalar_one_or_none()
+        if family:
+            return FamilyResponse.model_validate(family)
+
+    family = Family(name=f"{current_user.username}的家庭", owner_id=current_user.id)
+    db.add(family)
+    await db.flush()
+
+    new_member = FamilyMember(
+        family_id=family.id, user_id=current_user.id, role="owner"
+    )
+    db.add(new_member)
+    await db.flush()
+    await db.refresh(family)
+
+    return FamilyResponse.model_validate(family)
+
+
 @router.post("/", response_model=FamilyResponse, status_code=status.HTTP_201_CREATED)
 async def create_family(
     body: FamilyCreateRequest,

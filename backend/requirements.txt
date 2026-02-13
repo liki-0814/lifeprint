@@ -1,47 +1,53 @@
-# Web Framework
+# ========== Web Framework ==========
 fastapi==0.115.0
 uvicorn[standard]==0.32.0
 python-multipart==0.0.12
 
-# Database
+# ========== Database ==========
 sqlalchemy[asyncio]==2.0.36
 alembic==1.13.3
 asyncpg==0.30.0
 psycopg2-binary==2.9.9
 
-# Task Queue
+# ========== Task Queue ==========
 celery[redis]==5.4.0
 redis==5.2.1
 
-# Authentication
+# ========== Authentication ==========
 pyjwt==2.9.0
 passlib[bcrypt]==1.7.4
 python-jose[cryptography]==3.3.0
 
-# Object Storage
+# ========== Object Storage ==========
 minio==7.2.12
 
-# Data Validation
+# ========== Data Validation ==========
 pydantic==2.10.0
 pydantic-settings==2.6.1
 
-# Environment
+# ========== Environment ==========
 python-dotenv==1.0.1
 
-# AI - Remote APIs
+# ========== AI - Remote APIs ==========
 openai==1.55.0
 anthropic==0.40.0
 dashscope==1.20.14
 
-# AI - Local Models
+# ========== AI - Local Models ==========
+# InsightFace (人脸识别) - 可选，首次使用自动下载模型
 insightface==0.7.3
 onnxruntime==1.20.0
+# Whisper (语音转写) - 可选，首次使用自动下载模型
 openai-whisper==20240930
+# 场景检测与视频处理
 scenedetect[opencv]==0.6.4
 ffmpeg-python==0.2.0
 
-# PDF Generation
+# ========== PDF Generation ==========
 reportlab==4.2.5
 
-# HTTP Client
+# ========== HTTP Client ==========
 httpx==0.28.0
+
+# ========== Utilities ==========
+aiofiles==24.1.0

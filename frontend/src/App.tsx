@@ -1,14 +1,15 @@
-import React from 'react'
+import React, { useState, useEffect } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom'
-import { ConfigProvider, Layout, Menu } from 'antd'
+import { ConfigProvider, Layout, Menu, Drawer, Grid } from 'antd'
 import zhCN from 'antd/locale/zh_CN'
 import {
   DashboardOutlined,
   UploadOutlined,
   ClockCircleOutlined,
-  SwapOutlined,
+  FileTextOutlined,
   LogoutOutlined,
   SettingOutlined,
+  MenuOutlined,
 } from '@ant-design/icons'
 import Dashboard from './pages/Dashboard'
 import Login from './pages/Login'
@@ -22,12 +23,13 @@ import Settings from './pages/Settings'
 import { useAuthStore } from './stores/authStore'
 
 const { Header, Sider, Content } = Layout
+const { useBreakpoint } = Grid
 
 const menuItems = [
   { key: '/', icon: <DashboardOutlined />, label: '仪表盘' },
   { key: '/upload', icon: <UploadOutlined />, label: '上传记录' },
   { key: '/timeline', icon: <ClockCircleOutlined />, label: '成长时间轴' },
-  { key: '/compare', icon: <SwapOutlined />, label: '成长对比' },
+  { key: '/report', icon: <FileTextOutlined />, label: '成长报告' },
   { key: '/settings', icon: <SettingOutlined />, label: '设置' },
 ]
 
@@ -35,6 +37,15 @@ const AppLayout: React.FC = () => {
   const navigate = useNavigate()
   const location = useLocation()
   const { isAuthenticated, user, logout } = useAuthStore()
+  const screens = useBreakpoint()
+  const isMobile = !screens.md
+  const [drawerVisible, setDrawerVisible] = useState(false)
+
+  useEffect(() => {
+    if (!isMobile) {
+      setDrawerVisible(false)
+    }
+  }, [isMobile])
 
   const isAuthPage = ['/login', '/register'].includes(location.pathname)
 
@@ -51,36 +62,84 @@ const AppLayout: React.FC = () => {
     )
   }
 
+  const handleMenuClick = ({ key }: { key: string }) => {
+    navigate(key)
+    setDrawerVisible(false)
+  }
+
+  const siderMenu = (
+    <>
+      <div style={{ height: 48, margin: 16, display: 'flex', alignItems: 'center', fontSize: 18, fontWeight: 'bold', color: '#667eea' }}>
+        🌱 LifePrint
+      </div>
+      <Menu
+        mode="inline"
+        selectedKeys={[location.pathname]}
+        items={menuItems}
+        onClick={handleMenuClick}
+      />
+    </>
+  )
+
   return (
     <Layout style={{ minHeight: '100vh' }}>
-      <Sider theme="light" width={200}>
-        <div style={{ height: 48, margin: 16, display: 'flex', alignItems: 'center', fontSize: 18, fontWeight: 'bold', color: '#667eea' }}>
-          🌱 LifePrint
-        </div>
-        <Menu
-          mode="inline"
-          selectedKeys={[location.pathname]}
-          items={menuItems}
-          onClick={({ key }) => navigate(key)}
-        />
-      </Sider>
+      {isMobile ? (
+        <Drawer
+          placement="left"
+          open={drawerVisible}
+          onClose={() => setDrawerVisible(false)}
+          width={220}
+          styles={{ body: { padding: 0 } }}
+        >
+          {siderMenu}
+        </Drawer>
+      ) : (
+        <Sider theme="light" width={200}>
+          {siderMenu}
+        </Sider>
+      )}
       <Layout>
-        <Header style={{ background: '#fff', padding: '0 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #f0f0f0' }}>
-          <div style={{ fontSize: 16, fontWeight: 500 }}>儿童成长记录平台</div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-            {isAuthenticated && <span>欢迎，{user?.username}</span>}
-            {isAuthenticated ? (
-              <LogoutOutlined onClick={() => { logout(); navigate('/login') }} style={{ cursor: 'pointer', fontSize: 16 }} />
-            ) : (
-              <a onClick={() => navigate('/login')}>登录</a>
+        <Header style={{
+          background: '#fff',
+          padding: isMobile ? '0 12px' : '0 24px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          borderBottom: '1px solid #f0f0f0',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            {isMobile && (
+              <MenuOutlined
+                onClick={() => setDrawerVisible(true)}
+                style={{ fontSize: 18, cursor: 'pointer' }}
+              />
+            )}
+            <div style={{ fontSize: isMobile ? 14 : 16, fontWeight: 500 }}>
+              {isMobile ? 'LifePrint' : '儿童成长记录平台'}
+            </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 16 }}>
+            {isAuthenticated && !isMobile && <span>欢迎，{user?.username}</span>}
+            {isAuthenticated && (
+              <LogoutOutlined
+                onClick={() => { logout(); navigate('/login') }}
+                style={{ cursor: 'pointer', fontSize: 16 }}
+              />
             )}
           </div>
         </Header>
-        <Content style={{ margin: 24, padding: 24, background: '#fff', borderRadius: 8, minHeight: 280 }}>
+        <Content style={{
+          margin: isMobile ? 8 : 24,
+          padding: isMobile ? 12 : 24,
+          background: '#fff',
+          borderRadius: 8,
+          minHeight: 280,
+        }}>
           <Routes>
             <Route path="/" element={<Dashboard />} />
             <Route path="/upload" element={<Upload />} />
             <Route path="/timeline" element={<Timeline />} />
+            <Route path="/report" element={<Report />} />
             <Route path="/report/:childId" element={<Report />} />
             <Route path="/skills/:childId" element={<SkillTree />} />
             <Route path="/compare" element={<Compare />} />

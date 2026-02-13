@@ -3,7 +3,7 @@ import { Card, Typography, Space, Row, Col, List, Tag, Button, Descriptions, Emp
 import { FileTextOutlined, DownloadOutlined, ReloadOutlined } from '@ant-design/icons'
 import ReactEChartsCore from 'echarts-for-react'
 import { useParams } from 'react-router-dom'
-import { reportApi } from '@/services/api'
+import apiClient, { reportApi } from '@/services/api'
 
 const { Title, Text, Paragraph } = Typography
 
@@ -29,18 +29,31 @@ interface ReportItem {
 }
 
 const ReportPage: React.FC = () => {
-  const { childId } = useParams<{ childId: string }>()
+  const { childId: paramChildId } = useParams<{ childId: string }>()
+  const [resolvedChildId, setResolvedChildId] = useState<string | undefined>(paramChildId)
   const [reports, setReports] = useState<ReportItem[]>([])
   const [selectedReport, setSelectedReport] = useState<ReportItem | null>(null)
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
 
   useEffect(() => {
-    if (!childId) return
-    const fetchReports = async () => {
+    const init = async () => {
       setLoading(true)
       try {
-        const response = await reportApi.list(childId)
+        let targetChildId = paramChildId
+        if (!targetChildId) {
+          const familyRes = await apiClient.get('/families/mine').catch(() => null)
+          if (familyRes?.data?.id) {
+            const childRes = await apiClient.get(`/children/families/${familyRes.data.id}/children`).catch(() => ({ data: [] }))
+            const children = Array.isArray(childRes.data) ? childRes.data : []
+            if (children.length > 0) {
+              targetChildId = children[0].id
+            }
+          }
+        }
+        if (!targetChildId) { setLoading(false); return }
+        setResolvedChildId(targetChildId)
+        const response = await reportApi.list(targetChildId)
         const data = Array.isArray(response.data) ? response.data as ReportItem[] : []
         setReports(data)
         if (data.length > 0) setSelectedReport(data[0])
@@ -50,15 +63,15 @@ const ReportPage: React.FC = () => {
         setLoading(false)
       }
     }
-    fetchReports()
-  }, [childId])
+    init()
+  }, [paramChildId])
 
   const handleGenerate = async () => {
-    if (!childId) return
+    if (!resolvedChildId) return
     setGenerating(true)
     try {
-      await reportApi.generate(childId)
-      const response = await reportApi.list(childId)
+      await reportApi.generate(resolvedChildId)
+      const response = await reportApi.list(resolvedChildId)
       const data = Array.isArray(response.data) ? response.data as ReportItem[] : []
       setReports(data)
       if (data.length > 0) setSelectedReport(data[0])
@@ -123,7 +136,7 @@ const ReportPage: React.FC = () => {
             <Col xs={24} md={16}>
               {selectedReport && (
                 <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-                  <Card title={`${selectedReport.report_month} 成长报告`} style={{ borderRadius: 12 }} extra={<Button icon={<DownloadOutlined />} onClick={() => childId && reportApi.downloadPdf(childId, selectedReport.id)}>下载 PDF</Button>}>
+                  <Card title={`${selectedReport.report_month} 成长报告`} style={{ borderRadius: 12 }} extra={<Button icon={<DownloadOutlined />} onClick={() => resolvedChildId && reportApi.downloadPdf(resolvedChildId, selectedReport.id)}>下载 PDF</Button>}>
                     <Descriptions column={1} bordered>
                       <Descriptions.Item label="报告月份"><Tag color="blue">{selectedReport.report_month}</Tag></Descriptions.Item>
                       <Descriptions.Item label="生成时间">{new Date(selectedReport.created_at).toLocaleString('zh-CN')}</Descriptions.Item>

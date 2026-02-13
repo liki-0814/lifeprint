@@ -1,6 +1,7 @@
 version: "3.8"
 
 services:
+  # ========== 基础设施 ==========
   postgres:
     image: postgres:15-alpine
     container_name: lifeprint-postgres
@@ -52,23 +53,26 @@ services:
       timeout: 5s
       retries: 5
 
+  # ========== 应用服务 ==========
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
     container_name: lifeprint-backend
     restart: unless-stopped
+    env_file:
+      - .env
     environment:
       DATABASE_URL: postgresql+asyncpg://lifeprint:lifeprint_secret@postgres:5432/lifeprint
       REDIS_URL: redis://redis:6379/0
       MINIO_ENDPOINT: minio:9000
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin123
-      MINIO_BUCKET: lifeprint-media
-      MINIO_USE_SSL: "false"
+      MINIO_BUCKET_NAME: lifeprint-media
+      MINIO_SECURE: "false"
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-your-super-secret-jwt-key-change-in-production}
       JWT_ALGORITHM: HS256
-      JWT_EXPIRE_MINUTES: "1440"
+      ACCESS_TOKEN_EXPIRE_MINUTES: "1440"
       LLM_PROVIDER: ${LLM_PROVIDER:-openai}
       LLM_API_KEY: ${LLM_API_KEY:-}
       LLM_BASE_URL: ${LLM_BASE_URL:-https://api.openai.com/v1}
@@ -88,6 +92,7 @@ services:
       - ./data/temp:/app/data/temp
       - ./data/uploads:/app/data/uploads
       - ./data/exports:/app/data/exports
+      - ./data/models:/app/data/models
 
   celery-worker:
     build:
@@ -96,14 +101,18 @@ services:
     container_name: lifeprint-celery-worker
     restart: unless-stopped
     command: celery -A app.celery_app:celery_app worker --loglevel=info --concurrency=2
+    env_file:
+      - .env
     environment:
       DATABASE_URL: postgresql+asyncpg://lifeprint:lifeprint_secret@postgres:5432/lifeprint
       REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
       MINIO_ENDPOINT: minio:9000
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin123
-      MINIO_BUCKET: lifeprint-media
-      MINIO_USE_SSL: "false"
+      MINIO_BUCKET_NAME: lifeprint-media
+      MINIO_SECURE: "false"
       LLM_PROVIDER: ${LLM_PROVIDER:-openai}
       LLM_API_KEY: ${LLM_API_KEY:-}
       LLM_BASE_URL: ${LLM_BASE_URL:-https://api.openai.com/v1}
@@ -133,10 +142,13 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://lifeprint:lifeprint_secret@postgres:5432/lifeprint
       REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
     depends_on:
       redis:
         condition: service_healthy
 
+  # ========== 前端 & 网关 ==========
   frontend:
     build:
       context: ./frontend

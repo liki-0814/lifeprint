@@ -2,7 +2,9 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Query
+import json
+
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Query, Form
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -14,7 +16,6 @@ from app.models.analysis import AnalysisTask
 from app.schemas.media import (
     MediaUploadInitRequest,
     MediaUploadInitResponse,
-    MediaUploadCompleteRequest,
     MediaResponse,
     MediaDetailResponse,
 )
@@ -38,12 +39,25 @@ async def init_upload(
 @router.post("/upload/{upload_id}/complete", response_model=MediaResponse)
 async def complete_upload(
     upload_id: str,
-    body: MediaUploadCompleteRequest,
     file: UploadFile = File(...),
+    child_ids: str = Form(default="[]"),
+    captured_at: Optional[str] = Form(default=None),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """完成文件上传，创建媒体记录并触发 AI 分析"""
+    try:
+        parsed_child_ids = json.loads(child_ids) if child_ids else []
+    except (json.JSONDecodeError, TypeError):
+        parsed_child_ids = []
+
+    parsed_captured_at = None
+    if captured_at:
+        try:
+            parsed_captured_at = datetime.fromisoformat(captured_at)
+        except ValueError:
+            pass
+
     file_content = await file.read()
     storage_path = f"uploads/{current_user.id}/{upload_id}/{file.filename}"
 
@@ -66,13 +80,13 @@ async def complete_upload(
         storage_path=storage_path,
         original_filename=file.filename or "unknown",
         file_size=len(file_content),
-        captured_at=body.captured_at,
+        captured_at=parsed_captured_at,
         analysis_status="pending",
     )
     db.add(media_file)
     await db.flush()
 
-    for child_id in body.child_ids:
+    for child_id in parsed_child_ids:
         media_child = MediaChild(media_id=media_file.id, child_id=child_id)
         db.add(media_child)
 
