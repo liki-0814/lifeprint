@@ -1,0 +1,39 @@
+# Web Framework
+fastapi==0.115.0
+uvicorn[standard]==0.32.0
+python-multipart==0.0.12
+
+# Database
+sqlalchemy[asyncio]==2.0.36
+alembic==1.13.3
+asyncpg==0.30.0
+psycopg2-binary==2.9.9
+
+# Task Queue
+celery[redis]==5.4.0
+redis==5.2.1
+
+# Authentication
+pyjwt==2.9.0
+passlib[bcrypt]==1.7.4
+python-jose[cryptography]==3.3.0
+
+# Object Storage
+minio==7.2.12
+
+# Data Validation
+pydantic==2.10.0
+pydantic-settings==2.6.1
+
+# Environment
+python-dotenv==1.0.1
+
+# AI - Remote APIs
+openai==1.55.0
+dashscope==1.20.14
+
+# PDF Generation
+reportlab==4.2.5
+
+# HTTP Client
+httpx==0.28.0
