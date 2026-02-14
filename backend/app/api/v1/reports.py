@@ -1,8 +1,12 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.database import get_db
+
+logger = logging.getLogger(__name__)
 from app.models.user import User
 from app.models.child import Child
 from app.models.family import FamilyMember
@@ -138,19 +142,25 @@ async def generate_report(
     """手动触发生成月度报告，优先使用 Celery 异步执行，无 Celery 时同步生成"""
     await _verify_child_access(child_id, current_user, db)
 
+    logger.info("🎯 [API] 收到报告生成请求: child_id=%s, user=%s", child_id, current_user.id)
+
     celery_available = False
     try:
         from app.tasks.report import generate_child_monthly_report
         generate_child_monthly_report.delay(child_id)
         celery_available = True
-    except Exception:
-        pass
+        logger.info("📤 [API] 已提交 Celery 异步任务")
+    except Exception as celery_error:
+        logger.info("⚠️ [API] Celery 不可用(%s)，将使用同步模式生成", celery_error)
 
     if not celery_available:
         try:
             from app.services.report_service import generate_report_sync
+            logger.info("🔄 [API] 开始同步生成报告...")
             await generate_report_sync(child_id, db)
+            logger.info("✅ [API] 同步报告生成完成")
         except Exception as error:
+            logger.error("❌ [API] 报告生成失败: %s", error, exc_info=True)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"报告生成失败: {str(error)}",

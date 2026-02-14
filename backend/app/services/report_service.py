@@ -1,3 +1,4 @@
+import json
 import logging
 from datetime import date, timedelta
 from typing import Optional
@@ -148,7 +149,10 @@ async def generate_monthly_summary(
     radar_data: dict, spark_cards: list[dict]
 ) -> str:
     """使用统一 LLM client 生成月度成长总结"""
+    import time as _time
     from app.ai.remote.llm_client import get_llm_client
+
+    logger.info("📝 [月度总结] 开始生成月度成长总结，火花卡片数=%d", len(spark_cards))
 
     prompt = f"""你是一位专业的儿童发展顾问。请根据以下数据，为家长撰写一份温暖、鼓励性的月度成长总结（200-300字）。
 
@@ -177,9 +181,13 @@ async def generate_monthly_summary(
 
     try:
         client = get_llm_client()
-        return await client.chat(prompt=prompt)
+        start_time = _time.time()
+        result = await client.chat(prompt=prompt)
+        elapsed = _time.time() - start_time
+        logger.info("📝 [月度总结] 生成完成，耗时=%.1fs，内容长度=%d字符", elapsed, len(result))
+        return result
     except Exception as error:
-        logger.warning("LLM 生成月度总结失败: %s，使用默认文案", error)
+        logger.warning("❌ [月度总结] LLM 生成失败: %s，使用默认文案", error, exc_info=True)
 
     return "本月孩子表现良好，各方面都在稳步成长。继续保持对孩子的关注和陪伴，让成长的每一步都被温柔记录。"
 
@@ -214,8 +222,12 @@ def _flatten_radar_data(radar_data: dict) -> list[dict]:
 
 async def generate_report_sync(child_id: str, db: AsyncSession) -> None:
     """在无 Celery 环境下直接同步生成月度报告"""
+    import time as _time
     from app.models.child import Child
     from app.ai.remote.report_generator import generate_growth_narrative
+
+    logger.info("🚀 [报告生成] 开始同步生成月度报告，child_id=%s", child_id)
+    overall_start = _time.time()
 
     report_month = date.today().replace(day=1)
 
@@ -224,6 +236,7 @@ async def generate_report_sync(child_id: str, db: AsyncSession) -> None:
     )
     child = child_result.scalar_one_or_none()
     if not child:
+        logger.error("❌ [报告生成] 孩子不存在: %s", child_id)
         raise ValueError(f"孩子不存在: {child_id}")
 
     existing = await db.execute(
@@ -233,17 +246,23 @@ async def generate_report_sync(child_id: str, db: AsyncSession) -> None:
         )
     )
     if existing.scalar_one_or_none():
-        logger.info("本月报告已存在: child_id=%s", child_id)
+        logger.info("⏭️ [报告生成] 本月报告已存在，跳过: child_id=%s, month=%s", child_id, report_month)
         return
 
+    logger.info("📈 [报告生成] 步骤1: 计算雷达图数据...")
     radar_data = await calculate_radar_data(db, child_id, report_month)
+    logger.info("📈 [报告生成] 雷达图数据计算完成: %s", json.dumps(radar_data, ensure_ascii=False)[:300])
+
+    logger.info("🔥 [报告生成] 步骤2: 检测天赋火花卡片...")
     spark_cards = await detect_spark_cards(db, child_id)
+    logger.info("🔥 [报告生成] 检测到 %d 个火花卡片", len(spark_cards))
 
     age_months = (
         (report_month.year - child.birth_date.year) * 12
         + report_month.month - child.birth_date.month
     )
 
+    logger.info("📊 [报告生成] 步骤3: 调用 LLM 生成成长叙事...")
     narrative = await generate_growth_narrative(
         child_name=child.name,
         age_months=age_months,
@@ -253,6 +272,7 @@ async def generate_report_sync(child_id: str, db: AsyncSession) -> None:
         emotion_summary={},
     )
 
+    logger.info("📝 [报告生成] 步骤4: 调用 LLM 生成月度总结...")
     summary = await generate_monthly_summary(radar_data, spark_cards)
 
     report = MonthlyReport(
@@ -265,3 +285,6 @@ async def generate_report_sync(child_id: str, db: AsyncSession) -> None:
     )
     db.add(report)
     await db.commit()
+
+    overall_elapsed = _time.time() - overall_start
+    logger.info("✅ [报告生成] 月度报告生成完成！child_id=%s, 总耗时=%.1fs", child_id, overall_elapsed)

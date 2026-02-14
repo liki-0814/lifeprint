@@ -1,7 +1,11 @@
 import json
+import logging
+import time
 from typing import Optional
 
 from app.ai.remote.llm_client import get_llm_client
+
+logger = logging.getLogger(__name__)
 
 
 async def generate_growth_narrative(
@@ -95,8 +99,14 @@ async def generate_growth_narrative(
     )
 
     try:
-        return await client.chat(prompt=prompt)
-    except Exception:
+        logger.info("📊 [成长叙事] 开始为 %s（%d月龄）生成成长叙事报告...", child_name, age_months)
+        start_time = time.time()
+        result = await client.chat(prompt=prompt)
+        elapsed = time.time() - start_time
+        logger.info("📊 [成长叙事] 生成完成，耗时=%.1fs，内容长度=%d字符", elapsed, len(result))
+        return result
+    except Exception as error:
+        logger.error("❌ [成长叙事] 生成失败: %s，使用默认文案", error, exc_info=True)
         return f"""### 本月成长亮点
 
 {child_name}这个月继续保持着积极的成长态势，每一天都在用自己的方式探索这个世界。
