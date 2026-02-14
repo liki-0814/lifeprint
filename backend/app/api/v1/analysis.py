@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -9,6 +11,8 @@ from app.models.analysis import AnalysisResult, AnalysisTask
 from app.models.family import FamilyMember
 from app.schemas.analysis import AnalysisResultResponse, AnalysisTaskResponse
 from app.utils.deps import get_current_user
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -100,10 +104,46 @@ async def reanalyze(
     db.add(task)
     await db.flush()
 
+    logger.info("🎯 [分析API] 收到重新分析请求: media_id=%s", media_id)
+
+    celery_available = False
     try:
         from app.tasks.preprocess import preprocess_video
         preprocess_video.delay(media_id)
-    except Exception:
-        pass
+        celery_available = True
+        logger.info("📤 [分析API] 已提交 Celery 预处理任务")
+    except Exception as celery_error:
+        logger.info("⚠️ [分析API] Celery 不可用(%s)，将使用同步模式分析", celery_error)
 
-    return {"message": "已重新触发分析", "task_id": task.id}
+    if not celery_available:
+        try:
+            from app.ai.pipeline import run_preprocess_pipeline, run_analysis_pipeline
+            from datetime import datetime
+
+            logger.info("🔄 [分析API] 开始同步预处理: media_id=%s", media_id)
+            task.status = "running"
+            task.started_at = datetime.utcnow()
+            await db.flush()
+
+            preprocess_result = await run_preprocess_pipeline(db, media_id)
+
+            task.status = "completed"
+            task.completed_at = datetime.utcnow()
+            await db.flush()
+
+            logger.info("🔄 [分析API] 预处理完成，开始同步深度分析...")
+            await run_analysis_pipeline(db, media_id, preprocess_result)
+            await db.commit()
+            logger.info("✅ [分析API] 同步分析全部完成: media_id=%s", media_id)
+        except Exception as error:
+            logger.error("❌ [分析API] 同步分析失败: %s", error, exc_info=True)
+            task.status = "failed"
+            task.error_message = str(error)
+            media_file.analysis_status = "failed"
+            await db.commit()
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"分析失败: {str(error)}",
+            )
+
+    return {"message": "分析完成" if not celery_available else "已重新触发分析", "task_id": task.id}

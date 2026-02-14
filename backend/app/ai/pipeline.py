@@ -43,20 +43,25 @@ async def run_preprocess_pipeline(db: AsyncSession, media_id: str) -> dict:
     local_video_path = os.path.join(work_dir, "source_video")
 
     try:
+        logger.info("📥 [预处理] 从 MinIO 下载文件: %s", media_file.storage_path)
         file_bytes = minio_service.get_file_bytes(media_file.storage_path)
         with open(local_video_path, "wb") as f:
             f.write(file_bytes)
+        logger.info("📥 [预处理] 文件下载完成，大小=%.1fMB", len(file_bytes) / 1024 / 1024)
 
         keyframes_dir = os.path.join(work_dir, "keyframes")
+        logger.info("🎬 [预处理] 开始提取关键帧...")
         keyframes = scene_detector.extract_keyframes(local_video_path, keyframes_dir)
-        logger.info("提取到 %d 个关键帧", len(keyframes))
+        logger.info("🎬 [预处理] 提取到 %d 个关键帧", len(keyframes))
 
         transcription = {}
         if media_file.file_type == "video":
+            logger.info("🎤 [预处理] 开始提取音频并转写...")
             audio_path = scene_detector.extract_audio(
                 local_video_path, os.path.join(work_dir, "audio.wav")
             )
             transcription = whisper_engine.transcribe(audio_path)
+            logger.info("🎤 [预处理] 语音转写完成，文本长度=%d", len(transcription.get("text", "")))
             speech_analysis = whisper_engine.analyze_speech(transcription)
 
             from app.models.media import MediaChild
@@ -137,10 +142,13 @@ async def run_analysis_pipeline(
     work_dir = preprocess_result.get("work_dir", "")
 
     try:
+        logger.info("🧠 [深度分析] 开始并行执行行为识别 + 情感分析，关键帧数=%d", len(keyframe_paths))
         behavior_result, emotion_result = await asyncio.gather(
             analyze_behavior(keyframe_paths),
             analyze_emotion(keyframe_paths, transcription.get("text", "")),
         )
+        logger.info("🧠 [深度分析] 行为识别结果: %s", str(behavior_result)[:300])
+        logger.info("🧠 [深度分析] 情感分析结果: %s", str(emotion_result)[:300])
 
         from app.models.media import MediaChild
         child_ids_result = await db.execute(
@@ -176,7 +184,7 @@ async def run_analysis_pipeline(
             media_file.analysis_status = "completed"
 
         await db.flush()
-        logger.info("AI 分析完成: %s", media_id)
+        logger.info("✅ [深度分析] AI 分析全部完成: media_id=%s", media_id)
 
     except Exception as error:
         from sqlalchemy import select
